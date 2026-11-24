@@ -1,0 +1,29 @@
+# פריסת הגשר ל־Render (חינם). Render קורא את הקובץ הזה כשמחברים את המאגר ("Blueprint").
+# הסודות (BRIDGE_SECRET, BRIDGE_TOKEN) לא כתובים כאן – מזינים אותם במסך של Render (sync: false).
+services:
+  - type: web
+    name: progbot-bridge
+    runtime: node
+    plan: free
+    branch: main
+    buildCommand: "echo no-deps"
+    startCommand: node server.js
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: BRIDGE_SECRET
+        sync: false
+      - key: BRIDGE_TOKEN
+        sync: false
+      # פורום מדומה מובנה (להדגמה). לפורום הבדיקה האמיתי: ADAPTER=rest + FORUM_API_BASE + SESSION_COOKIE / AUTH_TOKEN
+      - key: ADAPTER
+        value: memory
+      # שרשורים לדוגמה בפורום המדומה (רק עם ADAPTER=memory)
+      - key: BRIDGE_DEMO_SEED
+        value: "1"
+      - key: ACCOUNTS
+        value: '[{"id":"business","label":"עסקי","username":"בונה מערכות","default":true},{"id":"personal","label":"אישי","username":"אברימי"}]'
+      - key: ONE_ACCOUNT_PER_THREAD
+        value: "on"
+      - key: NODE_VERSION
+        value: "20"

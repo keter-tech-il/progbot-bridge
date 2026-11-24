@@ -1,0 +1,14 @@
+{
+  "name": "prog-bot-bridge",
+  "version": "1.0.0",
+  "description": "הגשר בין אפליקציית הבוט לפורום: מקבל פעולות חתומות, מושך הודעות חדשות, ומנהל חשבונות",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED"
+}

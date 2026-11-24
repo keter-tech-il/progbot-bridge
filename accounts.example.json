@@ -1,0 +1,4 @@
+[
+  { "id": "business", "label": "עסקי", "username": "בונה מערכות", "email": "bnyytmrkwt@gmail.com", "default": true },
+  { "id": "personal", "label": "אישי", "username": "אברימי", "email": "ay0533115854@gmail.com" }
+]

@@ -1,0 +1,4 @@
+data/
+.env
+accounts.json
+node_modules/
