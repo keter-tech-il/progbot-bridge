@@ -288,6 +288,15 @@ function createBridge(env = process.env, deps = {}) {
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, "http://localhost");
+    /* ניקוי שאריות הדבקה בנתיב, למשל "/candidates](https://...)" → "/candidates" */
+    {
+      let p = url.pathname;
+      try { p = decodeURIComponent(p); } catch {}
+      const cut = p.search(/[\]\[()<>"'\s]|%5[bd]|%28|%29/i);
+      if (cut > 0) p = p.slice(0, cut);
+      if (p.length > 1) p = p.replace(/\/+$/, "") || "/";
+      if (p !== url.pathname) url.pathname = p;
+    }
     /* יומן בקשות קצר ב־Render (בלי טוקנים ובלי תוכן): שיטה, נתיב, חשבון, סטטוס, זמן */
     if (env.BRIDGE_QUIET !== "1" && process.env.NODE_ENV !== "test") {
       const t0 = Date.now();
