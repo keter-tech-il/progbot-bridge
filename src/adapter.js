@@ -66,7 +66,7 @@ class MemoryAdapter {
       quotedAuthors,
       replyToPostId,
       quote,
-      createdAt: at || new Date(Date.now() + this.seq).toISOString(),
+      createdAt: at || new Date((this.now ? this.now().getTime() : Date.now()) + this.seq).toISOString(),
       by,
     };
     t.posts.push(p);

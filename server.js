@@ -185,7 +185,7 @@ function createBridge(env = process.env, deps = {}) {
   async function handleCandidates(req, res, url) {
     if (!tokenOk(req)) return send(res, 401, { ok: false, error: "טוקן שגוי." });
     const account = findAccount(url.searchParams.get("account"));
-    if (!account) return send(res, 404, { ok: false, error: "חשבון לא מוכר." });
+    if (!account) return send(res, 404, { ok: false, code: "unknown_account", error: "חשבון לא מוכר." });
     const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit")) || 20));
     const redeliver = url.searchParams.get("redeliver") === "1";
     let posts;
@@ -277,7 +277,15 @@ function createBridge(env = process.env, deps = {}) {
         return send(res, 200, { ok: true, adapter: adapter.name, accounts: accounts.length, secret: Boolean(env.BRIDGE_SECRET) });
       }
       if (req.method === "POST" && (url.pathname === "/actions" || url.pathname === "/")) return await handleAction(req, res);
-      if (req.method === "GET" && url.pathname === "/candidates") return await handleCandidates(req, res, url);
+      /* כתובת הבסיס – הסבר קצר במקום 404 (מי שפותח בדפדפן או טועה בכתובת יודע מה לשים באפליקציה) */
+      if (req.method === "GET" && (url.pathname === "/" || url.pathname === "")) {
+        return send(res, 200, {
+          ok: true, service: "progbot-bridge", adapter: adapter.name,
+          app: { CONNECTOR_URL: "<כתובת הגשר>/actions", CONNECTOR_CANDIDATES_URL: "<כתובת הגשר>/candidates" },
+          endpoints: ["POST /actions", "GET /candidates", "GET /accounts", "GET /threads/:id", "GET /search", "GET /config", "GET /health"],
+        });
+      }
+      if (req.method === "GET" && (url.pathname === "/candidates" || url.pathname === "/candidates/")) return await handleCandidates(req, res, url);
       if (req.method === "GET" && url.pathname === "/accounts") {
         if (!tokenOk(req)) return send(res, 401, { ok: false, error: "טוקן שגוי." });
         return send(res, 200, { ok: true, accounts: accounts.map((a) => publicAccount(a, env)) });
@@ -286,14 +294,14 @@ function createBridge(env = process.env, deps = {}) {
       if (req.method === "GET" && m) {
         if (!tokenOk(req)) return send(res, 401, { ok: false, error: "טוקן שגוי." });
         const acc = findAccount(m[1]);
-        if (!acc) return send(res, 404, { ok: false, error: "חשבון לא מוכר." });
+        if (!acc) return send(res, 404, { ok: false, code: "unknown_account", error: "חשבון לא מוכר." });
         return send(res, 200, { account: acc.id, ...(await adapter.checkSession(acc)) });
       }
       const tm = url.pathname.match(/^\/threads\/([^/]+)$/);
       if (req.method === "GET" && tm) {
         if (!tokenOk(req)) return send(res, 401, { ok: false, error: "טוקן שגוי." });
         const acc = findAccount(url.searchParams.get("account"));
-        if (!acc) return send(res, 404, { ok: false, error: "חשבון לא מוכר." });
+        if (!acc) return send(res, 404, { ok: false, code: "unknown_account", error: "חשבון לא מוכר." });
         if (typeof adapter.fetchThread !== "function") return send(res, 501, { ok: false, error: "המתאם לא תומך בשליפת שרשור." });
         try {
           const r = await adapter.fetchThread(acc, decodeURIComponent(tm[1]));
@@ -307,7 +315,7 @@ function createBridge(env = process.env, deps = {}) {
       if (req.method === "GET" && url.pathname === "/search") {
         if (!tokenOk(req)) return send(res, 401, { ok: false, error: "טוקן שגוי." });
         const acc = findAccount(url.searchParams.get("account"));
-        if (!acc) return send(res, 404, { ok: false, error: "חשבון לא מוכר." });
+        if (!acc) return send(res, 404, { ok: false, code: "unknown_account", error: "חשבון לא מוכר." });
         if (typeof adapter.search !== "function") return send(res, 501, { ok: false, error: "המתאם לא תומך בחיפוש." });
         try {
           const posts = await adapter.search(acc, {
