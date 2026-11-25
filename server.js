@@ -53,7 +53,17 @@ function createBridge(env = process.env, deps = {}) {
   const onePerThread = !["off", "false", "0"].includes(String(env.ONE_ACCOUNT_PER_THREAD || "on").toLowerCase());
   const inflight = new Set();
 
-  const findAccount = (id) => (id ? accounts.find((a) => a.id === id) : accounts.find((a) => a.default));
+  /*
+    זיהוי חשבון: לפי מזהה (business), ובנוסף לפי התווית ("עסקי") או שם המשתמש בפורום ("בונה מערכות"),
+    בלי הבדל אותיות גדולות/קטנות ורווחים. בלי חשבון → חשבון ברירת המחדל.
+  */
+  const norm = (x) => String(x == null ? "" : x).trim().toLowerCase();
+  const defaultAccount = () => accounts.find((a) => a.default) || accounts[0];
+  const findAccount = (id) => {
+    const k = norm(id);
+    if (!k) return defaultAccount();
+    return accounts.find((a) => norm(a.id) === k) || accounts.find((a) => norm(a.label) === k) || accounts.find((a) => norm(a.username) === k) || null;
+  };
 
   function send(res, status, body, extraHeaders = {}) {
     const h = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...extraHeaders };
@@ -184,8 +194,15 @@ function createBridge(env = process.env, deps = {}) {
   /* ---------------- GET /candidates ---------------- */
   async function handleCandidates(req, res, url) {
     if (!tokenOk(req)) return send(res, 401, { ok: false, error: "טוקן שגוי." });
-    const account = findAccount(url.searchParams.get("account"));
-    if (!account) return send(res, 404, { ok: false, code: "unknown_account", error: "חשבון לא מוכר." });
+    /* מקור ההודעות לא מחזיר 404 בגלל חשבון: חשבון לא מוכר → חשבון ברירת המחדל + אזהרה בתשובה */
+    const asked = url.searchParams.get("account");
+    let account = findAccount(asked);
+    let warning = null;
+    if (!account) {
+      account = defaultAccount();
+      warning = `החשבון "${String(asked).slice(0, 40)}" לא מוכר בגשר – הוחזרו הודעות של חשבון ברירת המחדל (${account.id}). באפליקציה: "טען חשבונות מהגשר" ובחר מחדש.`;
+      console.warn("[bridge] candidates: unknown account", JSON.stringify(String(asked).slice(0, 40)), "→", account.id);
+    }
     const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit")) || 20));
     const redeliver = url.searchParams.get("redeliver") === "1";
     let posts;
@@ -245,7 +262,7 @@ function createBridge(env = process.env, deps = {}) {
     const order = [...new Set(events.map((e) => e.threadId))];
     events.sort((x, y) => order.indexOf(x.threadId) - order.indexOf(y.threadId) || (y.threadReplies || 0) - (x.threadReplies || 0));
     state.save();
-    return send(res, 200, { ok: true, account: account.id, events });
+    return send(res, 200, warning ? { ok: true, account: account.id, events, warning } : { ok: true, account: account.id, events });
   }
 
   /* ---------------- /dev – פורום מדומה ---------------- */
@@ -271,6 +288,15 @@ function createBridge(env = process.env, deps = {}) {
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, "http://localhost");
+    /* יומן בקשות קצר ב־Render (בלי טוקנים ובלי תוכן): שיטה, נתיב, חשבון, סטטוס, זמן */
+    if (env.BRIDGE_QUIET !== "1" && process.env.NODE_ENV !== "test") {
+      const t0 = Date.now();
+      res.on("finish", () => {
+        if (url.pathname === "/health") return;
+        const acc = url.searchParams.get("account");
+        console.log(`[bridge] ${req.method} ${url.pathname}${acc ? " account=" + acc.slice(0, 30) : ""} → ${res.statusCode} (${Date.now() - t0}ms)`);
+      });
+    }
     try {
       if (req.method === "OPTIONS") return send(res, 204, {});
       if (req.method === "GET" && url.pathname === "/health") {
