@@ -21,6 +21,9 @@ services:
       # שרשורים לדוגמה בפורום המדומה (רק עם ADAPTER=memory)
       - key: BRIDGE_DEMO_SEED
         value: "1"
+      # פורום הדגמה חי: הודעות חדשות נכנסות במשך היום (08:00–23:00)
+      - key: BRIDGE_DEMO_LIVE
+        value: "1"
       - key: ACCOUNTS
         value: '[{"id":"business","label":"עסקי","username":"בונה מערכות","default":true},{"id":"personal","label":"אישי","username":"אברימי"}]'
       - key: ONE_ACCOUNT_PER_THREAD

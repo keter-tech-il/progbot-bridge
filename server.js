@@ -31,6 +31,7 @@ const { createAdapter, AdapterError } = require("./src/adapter");
 const { loadAccounts, publicAccount } = require("./src/accounts");
 const { threadContext } = require("./src/thread");
 const { BridgeState } = require("./src/state");
+const demoLiveMod = require("./src/demo-live");
 
 function createBridge(env = process.env, deps = {}) {
   const accounts = deps.accounts || loadAccounts(env, path.join(__dirname, "src"));
@@ -208,6 +209,26 @@ function createBridge(env = process.env, deps = {}) {
   }
 
   /* ---------------- GET /candidates ---------------- */
+  /* פורום הדגמה חי (BRIDGE_DEMO_LIVE=1): הודעות חדשות נכנסות במשך היום */
+  const truthy = (v) => ["1", "on", "true"].includes(String(v || "").toLowerCase());
+  /* פועל כשמבקשים במפורש, או יחד עם BRIDGE_DEMO_SEED (אלא אם BRIDGE_DEMO_LIVE=0) */
+  const demoLive = devMode && typeof adapter.seedThread === "function" && (truthy(env.BRIDGE_DEMO_LIVE) || (truthy(env.BRIDGE_DEMO_SEED) && !["0", "off", "false"].includes(String(env.BRIDGE_DEMO_LIVE || "").toLowerCase())));
+  const liveNow = () => (deps.now ? deps.now() : adapter.now ? adapter.now() : new Date());
+  function liveTick() {
+    if (!demoLive) return;
+    try {
+      const added = demoLiveMod.materialize(adapter, liveNow());
+      if (added.length && env.BRIDGE_QUIET !== "1" && process.env.NODE_ENV !== "test") console.log(`[bridge] demo: ${added.length} new forum messages`);
+    } catch (e) {
+      console.warn("[bridge] demo live:", e.message);
+    }
+  }
+  if (demoLive && !deps.noTimers) {
+    liveTick();
+    const iv = setInterval(liveTick, 60000);
+    if (iv.unref) iv.unref();
+  }
+
   async function handleCandidates(req, res, url) {
     if (!tokenOk(req)) return send(res, 401, { ok: false, error: "טוקן שגוי." });
     /* מקור ההודעות לא מחזיר 404 בגלל חשבון: חשבון לא מוכר → חשבון ברירת המחדל + אזהרה בתשובה */
@@ -219,6 +240,7 @@ function createBridge(env = process.env, deps = {}) {
       warning = `החשבון "${String(asked).slice(0, 40)}" לא מוכר בגשר – הוחזרו הודעות של חשבון ברירת המחדל (${account.id}). באפליקציה: "טען חשבונות מהגשר" ובחר מחדש.`;
       console.warn("[bridge] candidates: unknown account", JSON.stringify(String(asked).slice(0, 40)), "→", account.id);
     }
+    liveTick();
     const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit")) || 20));
     const redeliver = url.searchParams.get("redeliver") === "1";
     let posts;
@@ -298,7 +320,7 @@ function createBridge(env = process.env, deps = {}) {
       else adapter.sessions.add(body.account);
       return send(res, 200, { ok: true });
     }
-    if (url.pathname === "/dev/forum") return send(res, 200, { ok: true, ...adapter.snapshot() });
+    if (url.pathname === "/dev/forum") { liveTick(); return send(res, 200, { ok: true, ...adapter.snapshot() }); }
     return send(res, 404, { ok: false, error: "לא נמצא." });
   }
 

@@ -46,19 +46,19 @@ class MemoryAdapter {
   }
 
   /* ---- כלים להדגמה ולבדיקות ---- */
-  seedThread({ id, forum = "מחשבים וטכנולוגיה", title, author, text, at }) {
+  seedThread({ id, forum = "מחשבים וטכנולוגיה", title, author, text, at, postId = null }) {
     const threadId = id || this.nextId("t");
     const t = { id: threadId, forum, title: title || text.slice(0, 40), posts: [] };
     this.threads.set(threadId, t);
-    this.addPost({ threadId, author, text, at });
+    this.addPost({ threadId, author, text, at, id: postId });
     return t;
   }
 
-  addPost({ threadId, author, text, replyToAuthor = null, quotedAuthors = [], at = null, by = null, replyToPostId = null, quote = null }) {
+  addPost({ threadId, author, text, replyToAuthor = null, quotedAuthors = [], at = null, by = null, replyToPostId = null, quote = null, id = null }) {
     const t = this.threads.get(String(threadId));
     if (!t) throw new AdapterError("השרשור לא קיים.", { status: 404, code: "not_found" });
     const p = {
-      id: this.nextId("p"),
+      id: id || this.nextId("p"),
       threadId: t.id,
       author,
       text,
