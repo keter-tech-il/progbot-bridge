@@ -69,3 +69,12 @@ $env:BRIDGE_SECRET="סוד-ארוך"; $env:ADAPTER="memory"; node server.js
 node bridge/test/bridge.test.js                                   # 99 בדיקות: גשר, מתאם REST, מנוע↔גשר מקצה לקצה
 python3 tools/test-app-bridge.py <נתיב ל־app/src/main/assets/www>  # 39 בדיקות: האפליקציה בדפדפן ↔ גשר אמיתי ↔ חזרה
 ```
+
+
+## קריאה מקישור מותאם (קריאה בלבד)
+
+- `GET /page/read?url=<קישור>` (עם הטוקן) – הגשר קורא את הדף ומחזיר `{ ok, status, title, site, kind, count, items:[{id, author, text, at, url}] }`.
+- `GET /candidates?account=...&source=link&url=<קישור>` – אותן הודעות במבנה הרגיל של הסנכרון, מסומנות `readOnly` (האפליקציה לא שולחת אותן לשום מקום – רק מנסחת להעתקה).
+- שגיאות הדף (לא של הגשר) חוזרות בקוד 424 עם `code`: `blocked` (403), `not_found` (404), `auth` (401), `rate_limited` (429), `server_error`, `timeout`, `network`; `bad_url` / `blocked_host` בקוד 400; `not_html` / `no_items` בקוד 422.
+- כתובות פנימיות (localhost, 10.x, 192.168.x, 169.254.x וכו') חסומות, גם אחרי הפניה.
+- מטמון: לכל היותר קריאה אמיתית אחת לכל כתובת כל 60 שניות.

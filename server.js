@@ -32,6 +32,7 @@ const { loadAccounts, publicAccount } = require("./src/accounts");
 const { threadContext } = require("./src/thread");
 const { BridgeState } = require("./src/state");
 const demoLiveMod = require("./src/demo-live");
+const pageReader = require("./src/page-reader");
 
 function createBridge(env = process.env, deps = {}) {
   const accounts = deps.accounts || loadAccounts(env, path.join(__dirname, "src"));
@@ -214,6 +215,9 @@ function createBridge(env = process.env, deps = {}) {
   /* פועל כשמבקשים במפורש, או יחד עם BRIDGE_DEMO_SEED (אלא אם BRIDGE_DEMO_LIVE=0) */
   const demoLive = devMode && typeof adapter.seedThread === "function" && (truthy(env.BRIDGE_DEMO_LIVE) || (truthy(env.BRIDGE_DEMO_SEED) && !["0", "off", "false"].includes(String(env.BRIDGE_DEMO_LIVE || "").toLowerCase())));
   const liveNow = () => (deps.now ? deps.now() : adapter.now ? adapter.now() : new Date());
+  function quietLog() {
+    return env.BRIDGE_QUIET === "1" || process.env.NODE_ENV === "test";
+  }
   function liveTick() {
     if (!demoLive) return;
     try {
@@ -229,6 +233,53 @@ function createBridge(env = process.env, deps = {}) {
     if (iv.unref) iv.unref();
   }
 
+  /*
+    קריאה מקישור מותאם (קריאה בלבד – בלי שום שליחה).
+    מטמון קצר לכל כתובת, כדי לא להציף את האתר: לכל היותר קריאה אמיתית אחת לכל כתובת כל 60 שניות.
+  */
+  const pageCache = new Map();
+  async function readPageCached(target) {
+    const key = pageReader.cleanInputUrl(target);
+    const hit = pageCache.get(key);
+    const nowMs = Date.now();
+    if (hit && nowMs - hit.at < 60000) return { ...hit.r, cached: true };
+    const r = await pageReader.readPage(key, { fetch: deps.pageFetch, lookup: deps.lookup, allowPrivate: Boolean(deps.allowPrivatePages) || env.PAGE_ALLOW_PRIVATE === "1", /* רק לבדיקות מקומיות */ timeoutMs: Number(env.PAGE_TIMEOUT_MS) || 15000 });
+    pageCache.set(key, { at: nowMs, r });
+    if (pageCache.size > 50) pageCache.delete(pageCache.keys().next().value);
+    if (!quietLog()) console.log(`[bridge] page read ${r.ok ? "ok" : "fail"} ${r.ok ? r.items.length + " items (" + r.kind + ")" : r.code} ${String(key).slice(0, 80)}`);
+    return r;
+  }
+  /* שגיאה של הדף היעד (לא של הגשר) → 424, כדי שהאפליקציה לא תחשוב שהגשר "מתעורר" (502/503/504) ותחכה לשווא */
+  const PAGE_HTTP = { bad_url: 400, blocked_host: 400, blocked: 424, auth: 424, not_found: 424, rate_limited: 424, server_error: 424, timeout: 424, network: 424, not_html: 422, too_large: 422, no_items: 422 };
+
+  async function handlePageRead(req, res, url) {
+    if (!tokenOk(req)) return send(res, 401, { ok: false, error: "טוקן שגוי." });
+    const target = url.searchParams.get("url");
+    if (!target) return send(res, 400, { ok: false, code: "bad_url", error: "חסר קישור (url=...)." });
+    const r = await readPageCached(target);
+    if (!r.ok) return send(res, PAGE_HTTP[r.code] || 424, r);
+    const limit = Math.min(200, Math.max(1, Number(url.searchParams.get("limit")) || 50));
+    return send(res, 200, { ...r, count: r.items.length, items: r.items.slice(0, limit) });
+  }
+
+  async function handleLinkCandidates(req, res, url, account, warning) {
+    const target = url.searchParams.get("url");
+    const r = await readPageCached(target);
+    if (!r.ok) return send(res, PAGE_HTTP[r.code] || 424, { ok: false, code: r.code, status: r.status || null, error: r.error, url: r.url || target });
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit")) || 20));
+    const redeliver = url.searchParams.get("redeliver") === "1";
+    const events = [];
+    for (const ev of pageReader.toCandidates(r, account.id, { myName: account.username })) {
+      const dkey = `${account.id}:link:${ev.id}`;
+      if (!redeliver && state.data.delivered[dkey]) continue;
+      state.data.delivered[dkey] = new Date().toISOString();
+      events.push({ ...ev, id: `${account.id}:${ev.id}` });
+      if (events.length >= limit) break;
+    }
+    state.save && state.save();
+    return send(res, 200, { ok: true, account: account.id, source: "link", readOnly: true, page: { url: r.finalUrl, title: r.title, site: r.site, kind: r.kind, count: r.items.length }, events, warning: [warning, ...(r.warnings || [])].filter(Boolean).join(" ") || undefined });
+  }
+
   async function handleCandidates(req, res, url) {
     if (!tokenOk(req)) return send(res, 401, { ok: false, error: "טוקן שגוי." });
     /* מקור ההודעות לא מחזיר 404 בגלל חשבון: חשבון לא מוכר → חשבון ברירת המחדל + אזהרה בתשובה */
@@ -241,6 +292,8 @@ function createBridge(env = process.env, deps = {}) {
       console.warn("[bridge] candidates: unknown account", JSON.stringify(String(asked).slice(0, 40)), "→", account.id);
     }
     liveTick();
+    /* מצב "קישור מותאם": ?source=link&url=... (או רק url=...) – קריאה בלבד מהדף */
+    if (url.searchParams.get("url") && url.searchParams.get("source") !== "demo") return await handleLinkCandidates(req, res, url, account, warning);
     const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit")) || 20));
     const redeliver = url.searchParams.get("redeliver") === "1";
     let posts;
@@ -355,10 +408,11 @@ function createBridge(env = process.env, deps = {}) {
         return send(res, 200, {
           ok: true, service: "progbot-bridge", adapter: adapter.name,
           app: { CONNECTOR_URL: "<כתובת הגשר>/actions", CONNECTOR_CANDIDATES_URL: "<כתובת הגשר>/candidates" },
-          endpoints: ["POST /actions", "GET /candidates", "GET /accounts", "GET /threads/:id", "GET /search", "GET /config", "GET /health"],
+          endpoints: ["POST /actions", "GET /candidates", "GET /candidates?source=link&url=…", "GET /page/read?url=…", "GET /accounts", "GET /threads/:id", "GET /search", "GET /config", "GET /health"],
         });
       }
       if (req.method === "GET" && (url.pathname === "/candidates" || url.pathname === "/candidates/")) return await handleCandidates(req, res, url);
+      if (req.method === "GET" && (url.pathname === "/page/read" || url.pathname === "/page/read/")) return await handlePageRead(req, res, url);
       if (req.method === "GET" && url.pathname === "/accounts") {
         if (!tokenOk(req)) return send(res, 401, { ok: false, error: "טוקן שגוי." });
         return send(res, 200, { ok: true, accounts: accounts.map((a) => publicAccount(a, env)) });
