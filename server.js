@@ -436,4 +436,14 @@ if (require.main === module) {
     console.log(`prog-bot-bridge on ${port} · adapter: ${adapter.name} · accounts: ${accounts.map((a) => a.id + (a.default ? "*" : "")).join(", ")}`);
     if (!process.env.BRIDGE_SECRET) console.warn("אזהרה: חסר BRIDGE_SECRET – הגשר לא יקבל פעולות.");
   });
+  /*
+    שומר ער: שרת חינמי ב־Render נרדם אחרי 15 דקות בלי בקשות (ופורום ההדגמה נמחק).
+    הגשר פונה לכתובת הציבורית של עצמו כל 9 דקות. Render מגדיר את RENDER_EXTERNAL_URL לבד. KEEP_AWAKE=0 מכבה.
+  */
+  const selfUrl = process.env.KEEP_AWAKE_URL || process.env.RENDER_EXTERNAL_URL;
+  if (selfUrl && process.env.KEEP_AWAKE !== "0" && typeof fetch === "function") {
+    const ping = () => fetch(selfUrl.replace(/\/+$/, "") + "/health").catch(() => {});
+    setInterval(ping, 9 * 60 * 1000);
+    console.log("keep-awake: pinging " + selfUrl + "/health every 9 min");
+  }
 }
